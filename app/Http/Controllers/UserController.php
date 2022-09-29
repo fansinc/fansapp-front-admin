@@ -1,0 +1,503 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+
+class UserController extends Controller
+{
+    /**
+     * Display a listing of the resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function index(Request $request,$page = 1)
+    {
+        $token = session()->get('token');
+
+        try{
+
+            $call = Http::withToken($token)->withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->get(config('global.url') . 'api/users?page='.$page);
+
+            $response = json_decode($call->getBody()->getContents(), true);
+            //  return $response;
+        }catch (\Exception $e){
+            //buy a beer
+
+
+        }
+
+        $users = $response['data'];
+
+
+
+        $pagination = $response['meta']['pagination'];
+
+        $lastpage = $pagination['total_pages'];
+
+        return view('user_list', compact('users','pagination','lastpage'));
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+    public function login(Request $request)
+    {
+        // echo config('global.url');exit;
+        $respose = Http::withHeaders([
+            'Accept' => 'application/vnd.api.v1+json',
+            'Content-Type' => 'application/json'
+        ])->post(config('global.url').'oauth/token', [
+            "grant_type" => "password",
+            "client_id" => 2,
+            "client_secret" => "FANSINC",
+            "username" => $request->username,
+            "password" => $request->password,
+            "scope" => ''
+        ]);
+        // return $respose;
+
+        if($respose->ok()){
+            // return $respose;
+
+            $request->session()->put('token',$respose->json()['access_token']);
+
+            $request->session()->save();
+
+            $token = session()->get('token');
+
+            try{
+
+                $userresponse = Http::withToken($token)->withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->get(config('global.url') .'api/me');
+
+                // $userresponse = json_decode($userdetails->getBody()->getContents(), true);
+
+
+
+            }catch (\Exception $e){
+                //buy a beer
+
+
+            }
+
+            $permissions =[];
+
+            $roles =[];
+
+            if($userresponse->ok()){
+
+                $userdetails =  json_decode($userresponse->getBody()->getContents(), true);;
+
+                foreach($userdetails['data']['roles']['data'] as $userdetail)
+                {
+                    $roles[] =$userdetail['name'];
+
+                    foreach($userdetail['permissions']['data'] as $permission)
+                    {
+                        $permissions[]= $permission['name'];
+
+                    }
+
+                }
+
+                // return $permissions;
+                // return $roles;
+                $username = $userresponse->json()['data']['name'];
+
+                $uid = $userresponse->json()['data']['id'];
+
+                $userid = $userresponse->json()['data']['user_id'];
+
+                // return $request;
+
+                // return $uid;
+
+                $request->session()->put('username',$username);
+
+                $request->session()->put('uid',$uid);
+
+                $request->session()->put('user_id',$userid);
+
+                $request->session()->put('permissions',$permissions);
+             $request->session()->put('company_id',$request['company_id']);
+
+                $request->session()->put('roles',$roles);
+                if(collect(session('roles'))->contains('Player')){
+                    return redirect()->route('news.index');
+
+
+                }
+                else if(collect(session('roles'))->contains('Fan')){
+
+                    return redirect()->route('news.index');
+                    // return redirect()->back()->with('error','Member User Is Not Allowed To Login');
+
+                }
+
+
+                $request->session()->save();
+
+            }
+
+            return redirect()->route('user.index');
+
+        }
+        else{
+
+            return redirect()->route('home')->with($respose->json());
+        }
+        //  return 1;
+        //
+    }
+
+
+
+    /**
+     * Show the form for creating a new resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function create()
+    {
+        $token = session()->get('token');
+
+        try{
+
+            $call = Http::withToken($token)->withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->get(config('global.url') . 'api/roles');
+
+            $response = json_decode($call->getBody()->getContents(), true);
+            //  return $response;
+        }catch (\Exception $e){
+            //buy a beer
+
+
+        }
+         $roles = $response['data'];
+
+         try{
+
+            $call = Http::withToken($token)->withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->get(config('global.url') . 'api/permissions?limit=1000');
+
+            $response = json_decode($call->getBody()->getContents(), true);
+            //  return $response;
+        }catch (\Exception $e){
+            //buy a beer
+
+
+        }
+         $permissions = $response['data'];
+
+
+
+         return view(
+                'create_user', compact(
+                    'roles','permissions'
+                )
+        );
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
+     */
+    public function store(Request $request)
+    {
+        $session = session()->get('token');
+
+
+        $response = Http::withToken($session)->withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->post(config('global.url').'api/users',
+
+        [
+
+            "name"=>$request->name,
+
+            "email"=>$request->email,
+
+            "password"=>$request->password,
+
+            "mobile"=>$request->mobile,
+
+            "password_confirmation"=>$request->password_confirmation,
+
+            "roles"=>$request->roles
+
+        ]);
+        // dd($request->all());
+
+        // dd($response);
+        // echo $response->status();exit;
+
+        if($response->status()===201){
+
+            return redirect()->route('users.create')->with('success','User Created Successfully!');
+        }else{
+            // var_dump($response);exit;
+          // return dd($response->json());
+            $request->flash();
+            return redirect()->route('users.create')->with('error',$response['errors']);
+        }
+
+    }
+
+    /**
+     * Display the specified resource.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function show($id)
+    {
+        //
+    }
+
+    /**
+     * Show the form for editing the specified resource.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function edit($id)
+    {
+        $session = session()->get('token');
+
+
+        try{
+
+            $call = Http::withToken($session)->withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->get(config('global.url') . 'api/roles');
+
+            $response = json_decode($call->getBody()->getContents(), true);
+            //  return $response;
+        }catch (\Exception $e){
+            //buy a beer
+
+
+        }
+         $roles = $response['data'];
+
+         try{
+
+            $call = Http::withToken($session)->withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->get(config('global.url') . 'api/permissions?limit=1000');
+
+            $response = json_decode($call->getBody()->getContents(), true);
+            //  return $response;
+        }catch (\Exception $e){
+            //buy a beer
+
+
+        }
+         $permissions = $response['data'];
+
+
+         $response=Http::withToken($session)->get(config('global.url').'api/users/'.$id);
+
+
+        if($response->ok()){
+
+            $user= $response->json()['data'];
+
+            return view('edit_user', compact(
+                'roles','user','permissions'
+            ));
+        }
+    }
+
+    /**
+     * Update the specified resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function update(Request $request, $id)
+    {
+        $session = session()->get('token');
+
+        $response = Http::withToken($session)->withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->put(config('global.url').'api/users/'.$id,
+
+        [
+            "_method"=> 'PUT',
+            "name"=>$request->name,
+            "email"=>$request->email,
+            "roles"=>$request->roles,
+            "mobile"=>$request->mobile,
+            "password_confirmation"=>$request->password_confirmation,
+            "password"=>$request->password
+
+
+        ]
+
+      );
+
+
+        // if($response->headers()['Content-Type'][0]=="text/html; charset=UTF-8"){
+        //     return redirect()->route('home');
+        // }
+        if($response->status()===200 || $response->status()===201){
+            return redirect()->back()->with('success','User Updated Successfully!');
+        }else{
+            // return redirect()->back()->with('error',$response['errors']);
+            if(isset($response['errors']))
+            {
+                return redirect()->back()->with('error',$response['errors']);
+            }
+            else if(isset($response['error']))
+            {
+                return redirect()->back()->with('error',$response['error']);
+            }
+            else if(isset($response['message']))
+            {
+                return redirect()->back()->with('error',$response['message']);
+            }
+        }
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function destroy($id)
+
+    {
+        $session = session()->get('token');
+
+        // return $id;
+
+        $response=Http::withToken($session)->withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->delete(config('global.url').'api/users/'.$id);
+
+        if($response->status()==204){
+
+             return redirect()->route('user.index')->with('success','User Deleted Sucessfully !..');
+        }
+        else{
+
+        //    dd($response);
+            // return $response['message'];
+
+             return redirect()->route('user.index')->with('error',$response['message']);
+        }
+    }
+
+    public function logout()
+    {
+
+        session()->flush();
+
+        session()->forget('token');
+
+        return redirect()->route('home');
+
+    }
+
+
+
+    public function ResetPasswordFirst(Request $request)
+    {
+        // return $request->email;
+
+
+            // $request["url"]=addslashes("http://adminnew.getstaysavvy.co.uk/reset_password");
+
+            $response = Http::withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->post(config('global.url').'api/forgot_password',
+            [
+
+                "email"=>$request->email,
+                // "url"=>"http://adminnew.getstaysavvy.co.uk/reset_password",
+                "url"=>"http://admin.fansinc.io/reset_password",
+
+
+            ]);
+
+
+        // dd($request->all());
+
+        // return $response;
+        // echo $response->status();exit;
+
+        if($response->status()===201 || $response->status()===200){
+
+            return redirect()->route('home')->with('success','Reset link is sent to your email!');
+        }else{
+            // dd($response);exit;
+            // if(!isset($response['message']))
+        //   return $response['errors'];
+            $request->flash();
+            if(isset($response['errors']))
+            {
+                return redirect()->back()->with('errors',$response['errors']);
+            }
+            else if(isset($response['error']))
+            {
+                return redirect()->back()->with('error',$response['error']);
+            }
+            else if(isset($response['message']))
+            {
+                return redirect()->back()->with('error',"Unable to send email. Please check your email id.");
+            }
+        }
+
+
+    }
+
+
+
+    public function ResetPasswordSec(Request $request)
+    {
+    //   return $request->password;
+
+        $response = Http::withHeaders(['Accept'=>'application/vnd.api.v1+json','Content-Type'=>'application/json'])->post(config('global.url').'api/reset_password',
+
+        [
+
+            "email"=>$request->email,
+            "token"=>$request->token,
+            "password"=>$request->password,
+            "password_confirmation"=>$request->password_confirmation,
+
+
+        ]);
+
+
+        // dd($request->all());
+
+        // dd($response);
+
+        // return $response;
+        // echo $response->status();exit;
+
+        if($response->status()==201 || $response->status()==200){
+            // return $response;
+            return redirect()->route('home')->with('success','Password is changed successfully!');
+        }else{
+            // dd($response);exit;
+          // return dd($response->json());
+            $request->flash();
+            if(isset($response['errors']) && isset($response['message']))
+            {
+                 return redirect()->back()->with('errors',$response['errors']);
+            }
+            else if(isset($response['message'])){
+
+                return redirect()->back()->with('error',$response['message']);
+            }
+        }
+
+
+    }
+
+
+}
